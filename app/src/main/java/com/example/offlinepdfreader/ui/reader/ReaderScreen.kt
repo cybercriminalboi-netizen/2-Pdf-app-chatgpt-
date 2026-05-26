@@ -171,10 +171,10 @@ class SquircleShape : Shape {
             val centerY = height / 2f
             
             moveTo(centerX, centerY - radius)
-            quadraticTo(centerX + radius * 0.88f, centerY - radius * 0.88f, centerX + radius, centerY)
-            quadraticTo(centerX + radius * 0.88f, centerY + radius * 0.88f, centerX, centerY + radius)
-            quadraticTo(centerX - radius * 0.88f, centerY + radius * 0.88f, centerX - radius, centerY)
-            quadraticTo(centerX - radius * 0.88f, centerY - radius * 0.88f, centerX, centerY - radius)
+            quadraticBezierTo(centerX + radius * 0.88f, centerY - radius * 0.88f, centerX + radius, centerY)
+            quadraticBezierTo(centerX + radius * 0.88f, centerY + radius * 0.88f, centerX, centerY + radius)
+            quadraticBezierTo(centerX - radius * 0.88f, centerY + radius * 0.88f, centerX - radius, centerY)
+            quadraticBezierTo(centerX - radius * 0.88f, centerY - radius * 0.88f, centerX, centerY - radius)
             close()
         }
         return Outline.Generic(path)
