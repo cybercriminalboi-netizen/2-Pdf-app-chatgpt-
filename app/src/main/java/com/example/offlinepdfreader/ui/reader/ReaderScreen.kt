@@ -53,13 +53,14 @@ fun ReaderScreen(
             Text(text = "Try MVP Contract Mode")
         }
 
+        val doc = state.currentDocument
         when {
             state.isLoading -> CircularProgressIndicator()
             state.errorMessage != null -> Text(text = state.errorMessage ?: "Error")
-            state.currentDocument == null -> Text(text = "No document opened")
+            doc == null -> Text(text = "No document opened")
             else -> {
-                Text(text = state.currentDocument.displayName)
-                Text(text = "Pages: ${state.currentDocument.pageCount}")
+                Text(text = doc.displayName)
+                Text(text = "Pages: ${doc.pageCount}")
             }
         }
 
