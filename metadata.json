@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Offline PDF Reader",
+  "description": "An offline Android PDF reader scaffold built with Kotlin and Jetpack Compose featuring caching, bookmarks, and search.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
