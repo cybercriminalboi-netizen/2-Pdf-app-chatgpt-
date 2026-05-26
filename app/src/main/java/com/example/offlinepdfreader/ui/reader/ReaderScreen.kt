@@ -914,19 +914,19 @@ fun ReaderScreen(
                                 Icon(
                                     imageVector = Icons.Filled.Edit,
                                     contentDescription = "Annotations notes",
-                                    tint = if (screbbleNoteText.isNotEmpty()) Color(0xFF2563EB) else Color.Gray,
+                                    tint = if (scribbleNoteText.isNotEmpty()) Color(0xFF2563EB) else Color.Gray,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (screbbleNoteText.isNotEmpty()) "Show page note: '${screbbleNoteText.take(20)}...'" else "Tap to write raw annotation for Page ${state.currentPageIndex + 1}...",
+                                    text = if (scribbleNoteText.isNotEmpty()) "Show page note: '${scribbleNoteText.take(20)}...'" else "Tap to write raw annotation for Page ${state.currentPageIndex + 1}...",
                                     fontSize = 13.sp,
-                                    color = if (screbbleNoteText.isNotEmpty()) themeTextColor else (if (state.isNightMode) Color.LightGray else Color.Gray),
+                                    color = if (scribbleNoteText.isNotEmpty()) themeTextColor else (if (state.isNightMode) Color.LightGray else Color.Gray),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            if (screbbleNoteText.isNotEmpty()) {
+                            if (scribbleNoteText.isNotEmpty()) {
                                 IconButton(
                                     onClick = { viewModel.deleteNoteForCurrentPage() },
                                     modifier = Modifier.size(24.dp)
