@@ -3,7 +3,12 @@ package com.example.offlinepdfreader.ui.reader
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import kotlin.math.abs
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -101,15 +106,56 @@ fun LazyPageRenderer(
             .height(550.dp)
             .background(if (isNightMode) Color(0xFF1E1E1E) else if (isSepiaMode) Color(0xFFFAF0E6) else Color(0xFFE2E8F0))
             .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 4f)
-                    if (scale > 1f) {
-                        offsetX += pan.x
-                        offsetY += pan.y
-                    } else {
-                        offsetX = 0f
-                        offsetY = 0f
-                    }
+                awaitEachGesture {
+                    var pastTouchSlop = false
+                    val touchSlop = viewConfiguration.touchSlop
+                    var zoom = 1f
+                    var pan = androidx.compose.ui.geometry.Offset.Zero
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val canceled = event.changes.any { it.isConsumed }
+                        if (!canceled) {
+                            val pointerCount = event.changes.size
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+
+                            if (!pastTouchSlop) {
+                                zoom *= zoomChange
+                                pan += panChange
+                                val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                                val zoomMotion = abs(1f - zoom) * centroidSize
+                                val panMotion = pan.getDistance()
+
+                                if (zoomMotion > touchSlop || panMotion > touchSlop) {
+                                    pastTouchSlop = true
+                                }
+                            }
+
+                            if (pastTouchSlop) {
+                                if (zoomChange != 1f) {
+                                    scale = (scale * zoomChange).coerceIn(1f, 4f)
+                                }
+
+                                if (panChange != androidx.compose.ui.geometry.Offset.Zero) {
+                                    if (scale > 1f) {
+                                        offsetX += panChange.x
+                                        offsetY += panChange.y
+                                    }
+                                }
+
+                                if (scale <= 1f) {
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+
+                                if (scale > 1f || pointerCount > 1) {
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             },
         contentAlignment = Alignment.Center

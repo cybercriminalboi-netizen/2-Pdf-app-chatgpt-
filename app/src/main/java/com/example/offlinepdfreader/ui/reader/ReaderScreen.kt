@@ -11,7 +11,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReaderScreen(
     viewModel: ReaderViewModel = viewModel(),
@@ -143,98 +148,48 @@ fun ReaderScreen(
                         .padding(top = 16.dp)
                 ) {
                     Text(
-                        text = "📚 LOCAL PDF READER",
+                        text = "📚 PDF Viewer",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1E293B)
-                    )
-                    Text(
-                        text = "Private Offline Reader • No AI • Buttery Smooth",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF64748B),
-                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
                 Divider(color = Color(0xFFE2E8F0))
 
                 // Action Launcher buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clickable { picker.launch(arrayOf("application/pdf")) },
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2563EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                 ) {
-                    Card(
+                    Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(130.dp)
-                            .clickable { picker.launch(arrayOf("application/pdf")) },
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2563EB)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = "Open file",
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Open file",
+                            tint = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "Open PDF Document",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
-                            Column {
-                                Text(
-                                    text = "Open PDF Document",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Select from local storage",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFDBEAFE)
-                                )
-                            }
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(130.dp)
-                            .clickable {
-                                context.startActivity(Intent(context, ReaderActivity::class.java))
-                            },
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Settings,
-                                contentDescription = "Try MVP Contract Mode",
-                                tint = Color.White,
-                                modifier = Modifier.size(32.dp)
+                            Text(
+                                text = "Select from local storage",
+                                fontSize = 12.sp,
+                                color = Color(0xFFDBEAFE)
                             )
-                            Column {
-                                Text(
-                                    text = "Try MVP Contract",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Alternative architecture",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF94A3B8)
-                                )
-                            }
                         }
                     }
                 }
@@ -306,12 +261,17 @@ fun ReaderScreen(
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        viewModel.openDocument(
-                                            context.contentResolver,
-                                            Uri.parse(document.uriString)
-                                        )
-                                    },
+                                    .combinedClickable(
+                                        onClick = {
+                                            viewModel.openDocument(
+                                                context.contentResolver,
+                                                Uri.parse(document.uriString)
+                                            )
+                                        },
+                                        onLongClick = {
+                                            sharePdfFile(context, document.uriString, document.displayName)
+                                        }
+                                    ),
                                 colors = CardDefaults.cardColors(containerColor = Color.White),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
@@ -419,12 +379,10 @@ fun ReaderScreen(
 
                     // Eye Comfort Modes (In-Fly GPU filters)
                     IconButton(onClick = { viewModel.toggleSepiaMode() }) {
-                        Text(
-                            text = "Sepia",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (state.isSepiaMode) Color(0xFFD97706) else themeTextColor,
-                            modifier = Modifier.padding(2.dp)
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "Toggle Sepia Comfort Filter",
+                            tint = if (state.isSepiaMode) Color(0xFFD97706) else themeTextColor
                         )
                     }
 
@@ -1017,5 +975,21 @@ fun ReaderScreen(
                 }
             }
         }
+    }
+}
+
+fun sharePdfFile(context: android.content.Context, uriString: String, displayName: String) {
+    try {
+        val uri = Uri.parse(uriString)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, displayName)
+            putExtra(Intent.EXTRA_TEXT, "Sharing PDF: $displayName")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share PDF Document"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Cannot share document", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
