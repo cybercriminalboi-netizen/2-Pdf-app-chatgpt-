@@ -657,7 +657,7 @@ fun ReaderScreen(
                     }
 
                     // SIDE SHEET / SLIDE-IN OVERLAY DRAWER
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = state.isSidebarOpen,
                         enter = slideInHorizontally(animationSpec = tween(300)) { -it },
                         exit = slideOutHorizontally(animationSpec = tween(300)) { -it }
