@@ -43,17 +43,25 @@ fun LazyPageRenderer(
     engine: PdfRendererEngine?,
     isNightMode: Boolean,
     isSepiaMode: Boolean,
-    coordinator: PdfRenderCoordinator = remember { PdfRenderCoordinator(PdfPageCache()) },
+    coordinator: PdfRenderCoordinator,
+    zoomScale: Float? = null,
+    zoomOffsetX: Float? = null,
+    zoomOffsetY: Float? = null,
+    onZoomChanged: ((scale: Float, offsetX: Float, offsetY: Float) -> Unit)? = null
 ) {
     if (engine == null) return
 
     var bitmap by remember(documentUri, pageIndex, width) { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember(documentUri, pageIndex, width) { mutableStateOf(true) }
 
-    // Multi-touch gestures variables
-    var scale by remember { mutableStateOf(1f) }
-    var offsetX by remember { mutableStateOf(0f) }
-    var offsetY by remember { mutableStateOf(0f) }
+    // Multi-touch gestures local variables (fallback if no shared state is passed)
+    var localScale by remember { mutableStateOf(1f) }
+    var localOffsetX by remember { mutableStateOf(0f) }
+    var localOffsetY by remember { mutableStateOf(0f) }
+
+    val scale = zoomScale ?: localScale
+    val offsetX = zoomOffsetX ?: localOffsetX
+    val offsetY = zoomOffsetY ?: localOffsetY
 
     // Load page bitmap asynchronously
     LaunchedEffect(documentUri, pageIndex, width) {
@@ -133,24 +141,36 @@ fun LazyPageRenderer(
                             }
 
                             if (pastTouchSlop) {
+                                var newScale = scale
+                                var newOffsetX = offsetX
+                                var newOffsetY = offsetY
+
                                 if (zoomChange != 1f) {
-                                    scale = (scale * zoomChange).coerceIn(1f, 4f)
+                                    newScale = (scale * zoomChange).coerceIn(1f, 4f)
                                 }
 
                                 if (panChange != androidx.compose.ui.geometry.Offset.Zero) {
-                                    if (scale > 1f) {
-                                        offsetX += panChange.x
-                                        offsetY += panChange.y
+                                    if (newScale > 1f) {
+                                        newOffsetX = offsetX + panChange.x
+                                        newOffsetY = offsetY + panChange.y
                                     }
                                 }
 
-                                if (scale <= 1f) {
-                                    scale = 1f
-                                    offsetX = 0f
-                                    offsetY = 0f
+                                if (newScale <= 1f) {
+                                    newScale = 1f
+                                    newOffsetX = 0f
+                                    newOffsetY = 0f
                                 }
 
-                                if (scale > 1f || pointerCount > 1) {
+                                if (onZoomChanged != null) {
+                                    onZoomChanged(newScale, newOffsetX, newOffsetY)
+                                } else {
+                                    localScale = newScale
+                                    localOffsetX = newOffsetX
+                                    localOffsetY = newOffsetY
+                                }
+
+                                if (newScale > 1f || pointerCount > 1) {
                                     event.changes.forEach { it.consume() }
                                 }
                             }

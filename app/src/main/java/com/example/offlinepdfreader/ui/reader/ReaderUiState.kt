@@ -4,12 +4,15 @@ import com.example.offlinepdfreader.model.PdfDocumentInfo
 import com.example.offlinepdfreader.model.PdfBookmark
 import com.example.offlinepdfreader.model.PdfNote
 import com.example.offlinepdfreader.search.PdfSearchResult
+import com.example.offlinepdfreader.storage.PdfLibrary
 
 data class ReaderUiState(
     val currentDocument: PdfDocumentInfo? = null,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val recentDocuments: List<PdfDocumentInfo> = emptyList(),
+    val libraries: List<PdfLibrary> = emptyList(),
+    val bookmarkedDocuments: List<PdfDocumentInfo> = emptyList(),
     
     // Eye comfort modes
     val isNightMode: Boolean = false,

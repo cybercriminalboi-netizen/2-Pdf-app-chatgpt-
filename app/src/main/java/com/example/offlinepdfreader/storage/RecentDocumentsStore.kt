@@ -10,7 +10,25 @@ class RecentDocumentsStore(context: Context) {
         val list = list().toMutableList()
         list.removeAll { it.uriString == document.uriString }
         list.add(0, document)
-        save(list.take(15)) // Keep up to 15 recent files
+        save(list) // Help users maintain unlimited history
+    }
+
+    fun addDirectly(document: PdfDocumentInfo) {
+        val list = list().toMutableList()
+        list.removeAll { it.uriString == document.uriString }
+        list.add(0, document)
+        save(list)
+    }
+
+    fun rename(documentUri: String, newName: String) {
+        val list = list().map {
+            if (it.uriString == documentUri) {
+                it.copy(displayName = newName)
+            } else {
+                it
+            }
+        }
+        save(list)
     }
 
     fun updateProgress(documentUri: String, pageIndex: Int) {

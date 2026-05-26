@@ -2,6 +2,7 @@ package com.example.offlinepdfreader.ui.reader
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -14,8 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -48,12 +47,18 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +73,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,9 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -87,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import com.example.offlinepdfreader.model.PdfDocumentInfo
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -95,7 +100,6 @@ fun ReaderScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.uiState.collectAsState()
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     val picker = rememberLauncherForActivityResult(
@@ -124,46 +128,350 @@ fun ReaderScreen(
 
     val doc = state.currentDocument
 
+    // 1. Back button navigation in Active Document view
+    BackHandler(enabled = doc != null) {
+        viewModel.closeDocument()
+    }
+
+    // Double tap back to exit on Home Screen
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+    BackHandler(enabled = doc == null) {
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressTime < 2000) {
+            (context as? android.app.Activity)?.finish()
+        } else {
+            lastBackPressTime = now
+            android.widget.Toast.makeText(context, "Press back again to exit", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Core Screen Dialogs State
+    var showRenameDialog by remember { mutableStateOf<PdfDocumentInfo?>(null) }
+    var showSaveAsDialog by remember { mutableStateOf<PdfDocumentInfo?>(null) }
+    var showAddToLibraryDialog by remember { mutableStateOf<List<PdfDocumentInfo>?>(null) }
+    var showCreateLibraryDialog by remember { mutableStateOf(false) }
+
+    // Multi-Selection State for Home dashboard tabs
+    val selectedUris = remember { mutableStateListOf<String>() }
+    var activeLibraryToShow by remember { mutableStateOf<com.example.offlinepdfreader.storage.PdfLibrary?>(null) }
+    var activeTab by remember { mutableStateOf(0) } // 0: Recent, 1: Libraries, 2: Bookmarks
+
+    // Clear selection whenever changing tabs or opening libraries
+    LaunchedEffect(activeTab, activeLibraryToShow) {
+        selectedUris.clear()
+    }
+
+    // High performance theme parameters
+    val surfaceColor = if (state.isNightMode) Color(0xFF121212) else Color(0xFFF8FAFC)
+    val cardBg = if (state.isNightMode) Color(0xFF1E1E1E) else Color.White
+    val textColorPrimary = if (state.isNightMode) Color.White else Color(0xFF0F172A)
+    val textColorSecondary = if (state.isNightMode) Color(0xFF94A3B8) else Color(0xFF475569)
+
+    // Handle Rename Dialog
+    if (showRenameDialog != null) {
+        val docToRename = showRenameDialog!!
+        var tempName by remember { mutableStateOf(docToRename.displayName.substringBeforeLast(".")) }
+        val extension = if (docToRename.displayName.contains(".")) docToRename.displayName.substringAfterLast(".") else "pdf"
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showRenameDialog = null },
+            title = { Text("Rename PDF Document", fontWeight = FontWeight.Bold, color = textColorPrimary) },
+            text = {
+                Column {
+                    Text("Enter a new display name:", fontSize = 13.sp, color = textColorSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tempName,
+                        onValueChange = { tempName = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF2563EB),
+                            unfocusedBorderColor = Color.LightGray
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tempName.trim().isNotEmpty()) {
+                            viewModel.renameDocument(docToRename.uriString, "$tempName.$extension")
+                        }
+                        showRenameDialog = null
+                        selectedUris.clear()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showRenameDialog = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+
+    // Handle Save As Copy
+    if (showSaveAsDialog != null) {
+        val docToCopy = showSaveAsDialog!!
+        var tempCopyName by remember { mutableStateOf(docToCopy.displayName.substringBeforeLast(".") + "_copy") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSaveAsDialog = null },
+            title = { Text("Save Document As Copy", fontWeight = FontWeight.Bold, color = textColorPrimary) },
+            text = {
+                Column {
+                    Text("Enter name for the new copy:", fontSize = 13.sp, color = textColorSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = tempCopyName,
+                        onValueChange = { tempCopyName = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF2563EB),
+                            unfocusedBorderColor = Color.LightGray
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (tempCopyName.trim().isNotEmpty()) {
+                            viewModel.saveDocumentAsCopy(context, docToCopy, tempCopyName.trim())
+                        }
+                        showSaveAsDialog = null
+                        selectedUris.clear()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("Save Copy")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showSaveAsDialog = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+
+    // Handle Add to Library
+    if (showAddToLibraryDialog != null) {
+        val docsToAdd = showAddToLibraryDialog!!
+        var newLibName by remember { mutableStateOf("") }
+        var isCreatingNew by remember { mutableStateOf(false) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showAddToLibraryDialog = null },
+            title = { Text("Add Selected to Library", fontWeight = FontWeight.Bold, color = textColorPrimary) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isCreatingNew) {
+                        Text("Choose target library folder:", fontSize = 13.sp, color = textColorSecondary)
+                        LazyColumn(modifier = Modifier.height(150.dp)) {
+                            items(state.libraries) { lib ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            docsToAdd.forEach { doc ->
+                                                viewModel.addDocumentToLibrary(lib.id, doc)
+                                            }
+                                            showAddToLibraryDialog = null
+                                            selectedUris.clear()
+                                            android.widget.Toast.makeText(context, "Added to library '${lib.name}'", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                        .padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.List,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(lib.name, fontSize = 14.sp, color = textColorPrimary)
+                                }
+                                Divider(color = if (state.isNightMode) Color.DarkGray else Color(0xFFF1F5F9))
+                            }
+                            if (state.libraries.isEmpty()) {
+                                item {
+                                    Text("No libraries found. Click below to make one.", color = Color.Gray, fontSize = 13.sp, modifier = Modifier.padding(vertical = 12.dp))
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Button(
+                            onClick = { isCreatingNew = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color(0xFF2563EB)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("+ Create New Library")
+                        }
+                    } else {
+                        Text("Enter name of new Library:", fontSize = 13.sp, color = textColorSecondary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = newLibName,
+                            onValueChange = { newLibName = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF2563EB),
+                                unfocusedBorderColor = Color.LightGray
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = { isCreatingNew = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray)
+                            ) {
+                                Text("Back")
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    if (newLibName.trim().isNotEmpty()) {
+                                        viewModel.createLibrary(newLibName.trim())
+                                        // Auto-reload to verify then fetch the created one to add docs instantly
+                                        val listLibs = viewModel.uiState.value.libraries
+                                        val matched = listLibs.firstOrNull { it.name.equals(newLibName.trim(), true) }
+                                        val libId = matched?.id ?: System.currentTimeMillis().toString()
+                                        docsToAdd.forEach { doc ->
+                                            viewModel.addDocumentToLibrary(libId, doc)
+                                        }
+                                        showAddToLibraryDialog = null
+                                        selectedUris.clear()
+                                        android.widget.Toast.makeText(context, "Created & Saved to '${newLibName.trim()}'", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                            ) {
+                                Text("Create & Add")
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                Button(
+                    onClick = { showAddToLibraryDialog = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+
+    // Handle Create Library from Tab directly
+    if (showCreateLibraryDialog) {
+        var customLibName by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showCreateLibraryDialog = false },
+            title = { Text("Create Custom Library", fontWeight = FontWeight.Bold, color = textColorPrimary) },
+            text = {
+                Column {
+                    Text("Enter Library folder name:", fontSize = 13.sp, color = textColorSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customLibName,
+                        onValueChange = { customLibName = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF2563EB),
+                            unfocusedBorderColor = Color.LightGray
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (customLibName.trim().isNotEmpty()) {
+                            viewModel.createLibrary(customLibName.trim())
+                        }
+                        showCreateLibraryDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showCreateLibraryDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray)
+                ) {
+                    Text("Cancel")
+                }
+            },
+            containerColor = cardBg
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (state.isNightMode) Color(0xFF121212)
-                else if (state.isSepiaMode) Color(0xFFFFF9EE)
-                else Color(0xFFF1F5F9)
-            )
+            .background(surfaceColor)
     ) {
         if (doc == null) {
-            // STEP 1: OFF-LINE DOCUMENT DASHBOARD & RECENT FILES
+            // STEP 1: OFF-LINE DOCUMENT DASHBOARD & LIBRARIES
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Sleek App Header with Gradient Accent
-                Column(
+                // Sleek App Header with Gradient Accent and Dark mode toggler
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp)
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "📚 PDF Viewer",
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
+                        color = textColorPrimary
                     )
+
+                    // Toggle Button in Home screen too to switch between light/dark themes
+                    IconButton(onClick = { viewModel.toggleNightMode() }) {
+                        Icon(
+                            imageVector = if (state.isNightMode) Icons.Filled.Refresh else Icons.Filled.Settings,
+                            contentDescription = "Theme Toggle",
+                            tint = if (state.isNightMode) Color(0xFFFBBF24) else Color(0xFF475569)
+                        )
+                    }
                 }
 
-                Divider(color = Color(0xFFE2E8F0))
+                Divider(color = if (state.isNightMode) Color.DarkGray else Color(0xFFE2E8F0))
 
                 // Action Launcher buttons
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(130.dp)
+                        .height(115.dp)
                         .clickable { picker.launch(arrayOf("application/pdf")) },
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2563EB)),
+                    colors = CardDefaults.cardColors(containerColor = if (state.isNightMode) Color(0xFF1E3A8A) else Color(0xFF2563EB)),
                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                 ) {
                     Column(
@@ -176,7 +484,7 @@ fun ReaderScreen(
                             imageVector = Icons.Filled.Add,
                             contentDescription = "Open file",
                             tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                         Column {
                             Text(
@@ -187,142 +495,561 @@ fun ReaderScreen(
                             )
                             Text(
                                 text = "Select from local storage",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = Color(0xFFDBEAFE)
                             )
                         }
                     }
                 }
 
-                // Recent Documents History Header
-                Text(
-                    text = "Recent Documents",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E293B)
-                )
-
-                if (state.isLoading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
+                if (activeLibraryToShow != null) {
+                    // Render specific Library Details view
+                    val currentLib = activeLibraryToShow!!
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        CircularProgressIndicator(color = Color(0xFF2563EB))
-                    }
-                } else if (state.recentDocuments.isEmpty()) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Info,
-                                contentDescription = "No Recents",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(48.dp)
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { activeLibraryToShow = null }) {
+                                Icon(
+                                    imageVector = Icons.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = textColorPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Your Reading List is Empty",
-                                fontSize = 16.sp,
+                                text = "Library: ${currentLib.name}",
+                                fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF475569)
+                                color = textColorPrimary
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Perfect for reading PDF books, instruction manuals, or textbooks offline with absolute privacy.",
-                                fontSize = 13.sp,
-                                color = Color(0xFF64748B),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                        }
+                        IconButton(onClick = {
+                            viewModel.deleteLibrary(currentLib.id)
+                            activeLibraryToShow = null
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Delete Library Group",
+                                tint = Color.Red
                             )
                         }
                     }
-                } else {
-                    // Recent Files Scroll List
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(state.recentDocuments) { document ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .combinedClickable(
-                                        onClick = {
-                                            viewModel.openDocument(
-                                                context.contentResolver,
-                                                Uri.parse(document.uriString)
-                                            )
-                                        },
-                                        onLongClick = {
-                                            sharePdfFile(context, document.uriString, document.displayName)
-                                        }
-                                    ),
-                                colors = CardDefaults.cardColors(containerColor = Color.White),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                            ) {
-                                Row(
+
+                    // Retrieve updated library from store directly
+                    val refreshedLib = state.libraries.firstOrNull { it.id == currentLib.id }
+                    val libDocuments = refreshedLib?.documents ?: emptyList()
+
+                    if (libDocuments.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No documents in this library yet.", color = textColorSecondary, fontSize = 14.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(libDocuments) { document ->
+                                val isSelected = selectedUris.contains(document.uriString)
+                                val cardBgColor = if (isSelected) {
+                                    if (state.isNightMode) Color(0xFF0F2D5C) else Color(0xFFEFF6FF)
+                                } else cardBg
+
+                                Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (selectedUris.isNotEmpty()) {
+                                                    if (isSelected) selectedUris.remove(document.uriString)
+                                                    else selectedUris.add(document.uriString)
+                                                } else {
+                                                    viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString))
+                                                }
+                                            },
+                                            onLongClick = {
+                                                if (!isSelected) selectedUris.add(document.uriString)
+                                            }
+                                        ),
+                                    colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.weight(1f),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.List,
-                                            contentDescription = "PDF document icon",
-                                            tint = Color(0xFFEF4444),
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column {
-                                            Text(
-                                                text = document.displayName,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                overflow = TextOverflow.Ellipsis,
-                                                maxLines = 1,
-                                                color = Color(0xFF1E293B)
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.List,
+                                                contentDescription = null,
+                                                tint = Color(0xFFEF4444),
+                                                modifier = Modifier.size(32.dp)
                                             )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "Progress: Page ${document.lastOpenedPage + 1} of ${document.pageCount}",
-                                                fontSize = 12.sp,
-                                                color = Color(0xFF64748B)
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Column {
+                                                Text(
+                                                    text = document.displayName,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    maxLines = 1,
+                                                    color = textColorPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = "Page ${document.lastOpenedPage + 1} of ${document.pageCount}",
+                                                    fontSize = 12.sp,
+                                                    color = textColorSecondary
+                                                )
+                                            }
+                                        }
+
+                                        if (selectedUris.isNotEmpty()) {
+                                            Icon(
+                                                imageVector = if (isSelected) Icons.Filled.Check else Icons.Filled.Add,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color(0xFF2563EB) else Color.Gray
                                             )
+                                        } else {
+                                            IconButton(onClick = { viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString)) }) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.ArrowForward,
+                                                    contentDescription = "Open",
+                                                    tint = Color(0xFF2563EB)
+                                                )
+                                            }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Standard Home Tabs Section: Recent Documents, Libraries, Starred
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val activeColorButton = @Composable { tab: Int, text: String ->
+                            val active = activeTab == tab
+                            Button(
+                                onClick = { activeTab = tab },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (active) (if (state.isNightMode) Color(0xFF1E3A8A) else Color(0xFF2563EB)) else Color.Transparent,
+                                    contentColor = if (active) Color.White else textColorPrimary
+                                ),
+                                shape = RoundedCornerShape(12),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        activeColorButton(0, "History")
+                        activeColorButton(1, "Folders")
+                        activeColorButton(2, "Starred")
+                    }
 
-                                    // Direct Play/Open Action
+                    // Render selected Tab content
+                    when (activeTab) {
+                        0 -> {
+                            // HISTORY TAB (Unlimited Recents)
+                            if (state.recentDocuments.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                    Text("Reading list is empty. Select a PDF file above to read.", color = textColorSecondary, fontSize = 14.sp)
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(state.recentDocuments) { document ->
+                                        val isSelected = selectedUris.contains(document.uriString)
+                                        val cardBgColor = if (isSelected) {
+                                            if (state.isNightMode) Color(0xFF0F2D5C) else Color(0xFFEFF6FF)
+                                        } else cardBg
+
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (selectedUris.isNotEmpty()) {
+                                                            if (isSelected) selectedUris.remove(document.uriString)
+                                                            else selectedUris.add(document.uriString)
+                                                        } else {
+                                                            viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString))
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        if (!isSelected) selectedUris.add(document.uriString)
+                                                    }
+                                                ),
+                                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.List,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFEF4444),
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(16.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = document.displayName,
+                                                            fontSize = 14.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            maxLines = 1,
+                                                            color = textColorPrimary
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = "Page ${document.lastOpenedPage + 1} of ${document.pageCount}",
+                                                            fontSize = 12.sp,
+                                                            color = textColorSecondary
+                                                        )
+                                                    }
+                                                }
+
+                                                if (selectedUris.isNotEmpty()) {
+                                                    Icon(
+                                                        imageVector = if (isSelected) Icons.Filled.Check else Icons.Filled.Add,
+                                                        contentDescription = null,
+                                                        tint = if (isSelected) Color(0xFF2563EB) else Color.Gray
+                                                    )
+                                                } else {
+                                                    IconButton(onClick = { viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString)) }) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.ArrowForward,
+                                                            contentDescription = "Open",
+                                                            tint = Color(0xFF2563EB)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        1 -> {
+                            // CUSTOM LIBRARIES TAB
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Grouping Collections", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textColorPrimary)
+                                Button(
+                                    onClick = { showCreateLibraryDialog = true },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color(0xFF2563EB))
+                                ) {
+                                    Text("+ Folder")
+                                }
+                            }
+
+                            if (state.libraries.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                    Text("No folders created. Group papers into libraries.", color = textColorSecondary, fontSize = 14.sp)
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(state.libraries) { library ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { activeLibraryToShow = library },
+                                            colors = CardDefaults.cardColors(containerColor = cardBg),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(16.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Menu,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF2563EB),
+                                                        modifier = Modifier.size(36.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(16.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = library.name,
+                                                            fontSize = 15.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = textColorPrimary
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = "${library.documents.size} PDFs",
+                                                            fontSize = 12.sp,
+                                                            color = textColorSecondary
+                                                        )
+                                                    }
+                                                }
+                                                IconButton(onClick = { viewModel.deleteLibrary(library.id) }) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Close,
+                                                        contentDescription = "Delete folder",
+                                                        tint = Color.Gray
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        2 -> {
+                            // STARRED PDFS TAB
+                            if (state.bookmarkedDocuments.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                                    Text("No bookmarked PDF files yet.", color = textColorSecondary, fontSize = 14.sp)
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(state.bookmarkedDocuments) { document ->
+                                        val isSelected = selectedUris.contains(document.uriString)
+                                        val cardBgColor = if (isSelected) {
+                                            if (state.isNightMode) Color(0xFF0F2D5C) else Color(0xFFEFF6FF)
+                                        } else cardBg
+
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        if (selectedUris.isNotEmpty()) {
+                                                            if (isSelected) selectedUris.remove(document.uriString)
+                                                            else selectedUris.add(document.uriString)
+                                                        } else {
+                                                            viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString))
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        if (!isSelected) selectedUris.add(document.uriString)
+                                                    }
+                                                ),
+                                            colors = CardDefaults.cardColors(containerColor = cardBgColor),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Star,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFFBBF24),
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(16.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = document.displayName,
+                                                            fontSize = 14.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            maxLines = 1,
+                                                            color = textColorPrimary
+                                                        )
+                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                        Text(
+                                                            text = "Page ${document.lastOpenedPage + 1} of ${document.pageCount}",
+                                                            fontSize = 12.sp,
+                                                            color = textColorSecondary
+                                                        )
+                                                    }
+                                                }
+
+                                                if (selectedUris.isNotEmpty()) {
+                                                    Icon(
+                                                        imageVector = if (isSelected) Icons.Filled.Check else Icons.Filled.Add,
+                                                        contentDescription = null,
+                                                        tint = if (isSelected) Color(0xFF2563EB) else Color.Gray
+                                                    )
+                                                } else {
+                                                    IconButton(onClick = { viewModel.openDocument(context.contentResolver, Uri.parse(document.uriString)) }) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.ArrowForward,
+                                                            contentDescription = "Open",
+                                                            tint = Color(0xFF2563EB)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Beautiful Sticky Bottom FLOATING Actions bar in Multi-selection mode!
+            if (selectedUris.isNotEmpty()) {
+                val itemsListSnapshot = remember(state, activeLibraryToShow, activeTab) {
+                    val pool = mutableListOf<PdfDocumentInfo>()
+                    pool.addAll(state.recentDocuments)
+                    pool.addAll(state.bookmarkedDocuments)
+                    state.libraries.forEach { pool.addAll(it.documents) }
+                    pool.distinctBy { it.uriString }
+                }
+                val selectedDocuments = itemsListSnapshot.filter { selectedUris.contains(it.uriString) }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp),
+                        colors = CardDefaults.cardColors(containerColor = if (state.isNightMode) Color(0xFF262626) else Color(0xFF0F172A)),
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${selectedUris.size} Selected",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // 1. Clear button
+                                IconButton(onClick = { selectedUris.clear() }) {
+                                    Icon(imageVector = Icons.Filled.Close, contentDescription = "Clear selection", tint = Color.White)
+                                }
+
+                                // 2. Share option (Can share multiple documents at once!)
+                                IconButton(onClick = {
+                                    if (selectedDocuments.isNotEmpty()) {
+                                        try {
+                                            val uris = ArrayList<Uri>()
+                                            selectedDocuments.forEach { uris.add(Uri.parse(it.uriString)) }
+                                            val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                                type = "application/pdf"
+                                                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            context.startActivity(Intent.createChooser(intent, "Share PDFs"))
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context, "Cannot share documents", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) {
+                                    Icon(imageVector = Icons.Filled.Share, contentDescription = "Share selected", tint = Color.White)
+                                }
+
+                                // 3. Bookmark/Star document lists toggle
+                                IconButton(onClick = {
+                                    selectedDocuments.forEach { viewModel.toggleDocumentBookmarkFromList(it) }
+                                    selectedUris.clear()
+                                    android.widget.Toast.makeText(context, "Bookmarks updated", android.widget.Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(imageVector = Icons.Filled.Star, contentDescription = "Star selected", tint = Color(0xFFFBBF24))
+                                }
+
+                                // 4. Add to Library button
+                                IconButton(onClick = {
+                                    showAddToLibraryDialog = selectedDocuments
+                                }) {
+                                    Icon(imageVector = Icons.Filled.Add, contentDescription = "Add selected to library group", tint = Color.White)
+                                }
+
+                                // 5. Rename (Only visible if exactly 1 is selected)
+                                if (selectedUris.size == 1) {
                                     IconButton(onClick = {
-                                        viewModel.openDocument(
-                                            context.contentResolver,
-                                            Uri.parse(document.uriString)
-                                        )
+                                        showRenameDialog = selectedDocuments.firstOrNull()
                                     }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.ArrowForward,
-                                            contentDescription = "Open",
-                                            tint = Color(0xFF2563EB)
-                                        )
+                                        Icon(imageVector = Icons.Filled.Edit, contentDescription = "Rename selected display label", tint = Color.White)
+                                    }
+                                }
+
+                                // 6. Save As (Duplicator tool, always available!)
+                                if (selectedUris.size == 1) {
+                                    IconButton(onClick = {
+                                        showSaveAsDialog = selectedDocuments.firstOrNull()
+                                    }) {
+                                        Icon(imageVector = Icons.Filled.Refresh, contentDescription = "Save copy as", tint = Color.White)
+                                    }
+                                }
+
+                                // 7. Remove item from Current Library if viewing library details
+                                if (activeLibraryToShow != null) {
+                                    IconButton(onClick = {
+                                        selectedUris.forEach { uri ->
+                                            viewModel.removeDocumentFromLibrary(activeLibraryToShow!!.id, uri)
+                                        }
+                                        selectedUris.clear()
+                                        android.widget.Toast.makeText(context, "Removed from library", android.widget.Toast.LENGTH_SHORT).show()
+                                    }) {
+                                        Icon(imageVector = Icons.Filled.Delete, contentDescription = "Remove from library folder", tint = Color.Red)
                                     }
                                 }
                             }
@@ -335,158 +1062,246 @@ fun ReaderScreen(
             val themeTextColor = if (state.isNightMode) Color.White else Color(0xFF0F172A)
             val themeBgSecondary = if (state.isNightMode) Color(0xFF1E1E1E) else if (state.isSepiaMode) Color(0xFFFCF5E5) else Color.White
 
-            Column(modifier = Modifier.fillMaxSize()) {
+            // State to control visibility of all top/bottom bars (Request 10 single-tap to toggle)
+            var showControlOverlays by remember { mutableStateOf(true) }
+
+            // Continuous scroll zoom variables
+            var scrollScale by remember(doc.uriString) { mutableStateOf(1f) }
+            var scrollOffsetX by remember(doc.uriString) { mutableStateOf(0f) }
+            var scrollOffsetY by remember(doc.uriString) { mutableStateOf(0f) }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        showControlOverlays = !showControlOverlays
+                    }
+            ) {
                 // TOP BAR ACTION CONTROLLERS
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(themeBgSecondary)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
                 ) {
-                    IconButton(onClick = { viewModel.closeDocument() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Close PDF",
-                            tint = themeTextColor
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text(
-                            text = doc.displayName,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = themeTextColor,
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 1
-                        )
-                        Text(
-                            text = "Page ${state.currentPageIndex + 1} of ${doc.pageCount}",
-                            fontSize = 11.sp,
-                            color = if (state.isNightMode) Color.LightGray else Color.Gray
-                        )
-                    }
-
-                    // Toggle Continuous Scroll vs Single Page swiping layout
-                    IconButton(onClick = { viewModel.toggleLayoutMode() }) {
-                        Icon(
-                            imageVector = Icons.Filled.List,
-                            contentDescription = "Layout mode",
-                            tint = if (state.isSinglePageMode) Color(0xFF2563EB) else themeTextColor
-                        )
-                    }
-
-                    // Eye Comfort Modes (In-Fly GPU filters)
-                    IconButton(onClick = { viewModel.toggleSepiaMode() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Toggle Sepia Comfort Filter",
-                            tint = if (state.isSepiaMode) Color(0xFFD97706) else themeTextColor
-                        )
-                    }
-
-                    IconButton(onClick = { viewModel.toggleNightMode() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Settings,
-                            contentDescription = "Night Mode",
-                            tint = if (state.isNightMode) Color(0xFFFBBF24) else themeTextColor
-                        )
-                    }
-
-                    // Toggle Bookmark current state
-                    val isBookmarked = state.bookmarks.any { it.pageIndex == state.currentPageIndex }
-                    IconButton(onClick = { viewModel.toggleBookmarkCurrentPage() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = "Bookmark Page",
-                            tint = if (isBookmarked) Color(0xFFFBBF24) else themeTextColor
-                        )
-                    }
-
-                    // Open Outline Index Slide-out
-                    IconButton(onClick = { viewModel.toggleSidebar() }) {
-                        Icon(
-                            imageVector = Icons.Filled.Menu,
-                            contentDescription = "Directory Menu",
-                            tint = if (state.isSidebarOpen) Color(0xFF2563EB) else themeTextColor
-                        )
-                    }
-                }
-
-                Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
-
-                // TEXT SEARCH BAR EMBEDDED
-                var searchExpanded by remember { mutableStateOf(false) }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(themeBgSecondary)
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (!searchExpanded) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { searchExpanded = true },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(themeBgSecondary)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { viewModel.closeDocument() }) {
                             Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = "Search icon",
-                                tint = if (state.isNightMode) Color.LightGray else Color.Gray,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close PDF",
+                                tint = themeTextColor
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                             Text(
-                                text = "Search inside this document...",
-                                fontSize = 13.sp,
+                                text = doc.displayName,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = themeTextColor,
+                                overflow = TextOverflow.Ellipsis,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = "Page ${state.currentPageIndex + 1} of ${doc.pageCount}",
+                                fontSize = 11.sp,
                                 color = if (state.isNightMode) Color.LightGray else Color.Gray
                             )
                         }
-                    } else {
-                        OutlinedTextField(
-                            value = state.searchQuery,
-                            onValueChange = { viewModel.search(it) },
-                            placeholder = { Text("Type keyword to find...", fontSize = 13.sp) },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            textStyle = TextStyle(fontSize = 13.sp, color = themeTextColor),
-                            singleLine = true,
-                            leadingIcon = {
+
+                        // Toggle Continuous Scroll vs Single Page swiping layout
+                        IconButton(onClick = { viewModel.toggleLayoutMode() }) {
+                            Icon(
+                                imageVector = Icons.Filled.List,
+                                contentDescription = "Layout mode",
+                                tint = if (state.isSinglePageMode) Color(0xFF2563EB) else themeTextColor
+                            )
+                        }
+
+                        // Eye Comfort Modes (Single visibility toggle cycle - Normal -> Sepia -> Night -> Normal)
+                        IconButton(onClick = {
+                            if (!state.isNightMode && !state.isSepiaMode) {
+                                viewModel.setSepiaMode(true)
+                                viewModel.setNightMode(false)
+                            } else if (state.isSepiaMode) {
+                                viewModel.setSepiaMode(false)
+                                viewModel.setNightMode(true)
+                            } else {
+                                viewModel.setSepiaMode(false)
+                                viewModel.setNightMode(false)
+                            }
+                        }) {
+                            val iconColor = when {
+                                state.isNightMode -> Color(0xFFFBBF24) // Gold
+                                state.isSepiaMode -> Color(0xFFD97706) // Orange
+                                else -> themeTextColor
+                            }
+                            Icon(
+                                imageVector = Icons.Filled.Visibility,
+                                contentDescription = "Cycling eye confort filter",
+                                tint = iconColor
+                            )
+                        }
+
+                        // Star/Bookmark Page action
+                        val isPageBookmarked = state.bookmarks.any { it.pageIndex == state.currentPageIndex }
+                        IconButton(onClick = { viewModel.toggleBookmarkCurrentPage() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Bookmark Page",
+                                tint = if (isPageBookmarked) Color(0xFFFBBF24) else themeTextColor
+                            )
+                        }
+
+                        // Directory Menu sliding sidebar
+                        IconButton(onClick = { viewModel.toggleSidebar() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Menu,
+                                contentDescription = "Directory Menu",
+                                tint = if (state.isSidebarOpen) Color(0xFF2563EB) else themeTextColor
+                            )
+                        }
+
+                        // THREE DOT MENU OPTIONS (RENAMING AND DUPLICATION AS COPYS)
+                        var showThreeDotExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showThreeDotExpanded = true }) {
                                 Icon(
-                                    imageVector = Icons.Filled.Search,
-                                    contentDescription = "Search icon",
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "Options dropdown",
                                     tint = themeTextColor
                                 )
-                            },
-                            trailingIcon = {
-                                if (state.searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { viewModel.clearSearch() }) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Close,
-                                            contentDescription = "Clear search",
-                                            tint = themeTextColor
-                                        )
+                            }
+                            DropdownMenu(
+                                expanded = showThreeDotExpanded,
+                                onDismissRequest = { showThreeDotExpanded = false },
+                                modifier = Modifier.background(themeBgSecondary)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename PDF Display Title", color = themeTextColor) },
+                                    onClick = {
+                                        showThreeDotExpanded = false
+                                        showRenameDialog = doc
                                     }
-                                }
-                            },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF2563EB),
-                                unfocusedBorderColor = if (state.isNightMode) Color.DarkGray else Color.LightGray,
-                                focusedLabelColor = Color(0xFF2563EB)
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save Copy As (No Overwriting)", color = themeTextColor) },
+                                    onClick = {
+                                        showThreeDotExpanded = false
+                                        showSaveAsDialog = doc
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Add To Collection Folder", color = themeTextColor) },
+                                    onClick = {
+                                        showThreeDotExpanded = false
+                                        showAddToLibraryDialog = listOf(doc)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share Document", color = themeTextColor) },
+                                    onClick = {
+                                        showThreeDotExpanded = false
+                                        sharePdfFile(context, doc.uriString, doc.displayName)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
+                ) {
+                    Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                }
+
+                // TEXT SEARCH BAR EMBEDDED
+                var searchExpanded by remember { mutableStateOf(false) }
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(themeBgSecondary)
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (!searchExpanded) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { searchExpanded = true },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Search,
+                                    contentDescription = null,
+                                    tint = if (state.isNightMode) Color.LightGray else Color.Gray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Search inside this document...",
+                                    fontSize = 13.sp,
+                                    color = if (state.isNightMode) Color.LightGray else Color.Gray
+                                )
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = state.searchQuery,
+                                onValueChange = { viewModel.search(it) },
+                                placeholder = { Text("Type keyword to find...", fontSize = 13.sp) },
+                                modifier = Modifier.weight(1f).height(48.dp),
+                                textStyle = TextStyle(fontSize = 13.sp, color = themeTextColor),
+                                singleLine = true,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = null,
+                                        tint = themeTextColor
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (state.searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.clearSearch() }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = null,
+                                                tint = themeTextColor
+                                            )
+                                        }
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF2563EB),
+                                    unfocusedBorderColor = if (state.isNightMode) Color.DarkGray else Color.LightGray
+                                )
                             )
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(onClick = {
-                            searchExpanded = false
-                            viewModel.clearSearch()
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Collapse Search",
-                                tint = themeTextColor
-                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(onClick = {
+                                searchExpanded = false
+                                viewModel.clearSearch()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Collapse Search",
+                                    tint = themeTextColor
+                                )
+                            }
                         }
                     }
                 }
@@ -513,30 +1328,32 @@ fun ReaderScreen(
                                         .padding(vertical = 6.dp, horizontal = 4.dp),
                                     verticalAlignment = Alignment.Top,
                                     horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text(
-                                            text = result.pageLabel,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF2563EB),
-                                            modifier = Modifier.padding(end = 8.dp)
-                                        )
-                                        Text(
-                                            text = result.snippet,
-                                            fontSize = 12.sp,
-                                            color = themeTextColor,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                    Divider(color = if (state.isNightMode) Color.DarkGray else Color(0xFFF1F5F9))
+                                ) {
+                                    Text(
+                                        text = result.pageLabel,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF2563EB),
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    Text(
+                                        text = result.snippet,
+                                        fontSize = 12.sp,
+                                        color = themeTextColor,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                Divider(color = if (state.isNightMode) Color.DarkGray else Color(0xFFF1F5F9))
                             }
                         }
                     }
                 }
 
-                Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                if (showControlOverlays) {
+                    Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                }
 
                 // CORE PDF CANVAS DRAWER (Continuous vs Swipe)
                 Box(modifier = Modifier.weight(1.0f)) {
@@ -552,10 +1369,11 @@ fun ReaderScreen(
                                 width = 1200,
                                 engine = viewModel.getEngine(),
                                 isNightMode = state.isNightMode,
-                                isSepiaMode = state.isSepiaMode
+                                isSepiaMode = state.isSepiaMode,
+                                coordinator = viewModel.coordinator
                             )
 
-                            // Overlay arrows
+                            // Overlay navigation arrows
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -595,11 +1413,11 @@ fun ReaderScreen(
                             }
                         }
                     } else {
-                        // CONTINUOUS SCROLLABLE VIEWPORT
+                        // CONTINUOUS SCROLLABLE VIEWPORT avec ZOOM unifié (Request 3 & 4)
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             state = listState,
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            verticalArrangement = Arrangement.spacedBy(0.dp) // Supprime le grand espace blanc
                         ) {
                             items(doc.pageCount) { index ->
                                 LazyPageRenderer(
@@ -608,7 +1426,24 @@ fun ReaderScreen(
                                     width = 1200,
                                     engine = viewModel.getEngine(),
                                     isNightMode = state.isNightMode,
-                                    isSepiaMode = state.isSepiaMode
+                                    isSepiaMode = state.isSepiaMode,
+                                    coordinator = viewModel.coordinator,
+                                    zoomScale = scrollScale,
+                                    zoomOffsetX = scrollOffsetX,
+                                    zoomOffsetY = scrollOffsetY,
+                                    onZoomChanged = { scaleVal, ox, oy ->
+                                        scrollScale = scaleVal
+                                        scrollOffsetX = ox
+                                        scrollOffsetY = oy
+                                    }
+                                )
+
+                                // Ligne séparatrice noire/blanche très fine selon Request 3
+                                val ruleColor = if (state.isNightMode) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f)
+                                Divider(
+                                    color = ruleColor,
+                                    thickness = 1.dp,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
@@ -817,7 +1652,7 @@ fun ReaderScreen(
                                                                 viewModel.updateReadingProgress(idx)
                                                                 viewModel.toggleSidebar()
                                                             }
-                                                            .padding(vertical = 11.dp),
+                                                                .padding(vertical = 11.dp),
                                                         horizontalArrangement = Arrangement.SpaceBetween,
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
@@ -847,131 +1682,159 @@ fun ReaderScreen(
                     }
                 }
 
-                Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
-
-                // STICKY WRITTEN NOTE WRAPPER
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(themeBgSecondary)
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
                 ) {
-                    val currentNotesMatch = state.notes.firstOrNull { it.pageIndex == state.currentPageIndex }
-                    var scribbleNoteText by remember(state.currentPageIndex) {
-                        mutableStateOf(currentNotesMatch?.note ?: "")
-                    }
-                    var editingNotes by remember(state.currentPageIndex) { mutableStateOf(false) }
+                    Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                }
 
-                    if (!editingNotes) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { editingNotes = true },
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.Edit,
-                                    contentDescription = "Annotations notes",
-                                    tint = if (scribbleNoteText.isNotEmpty()) Color(0xFF2563EB) else Color.Gray,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = if (scribbleNoteText.isNotEmpty()) "Show page note: '${scribbleNoteText.take(20)}...'" else "Tap to write raw annotation for Page ${state.currentPageIndex + 1}...",
-                                    fontSize = 13.sp,
-                                    color = if (scribbleNoteText.isNotEmpty()) themeTextColor else (if (state.isNightMode) Color.LightGray else Color.Gray),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (scribbleNoteText.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { viewModel.deleteNoteForCurrentPage() },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
+                // STICKY WRITTEN NOTE WRAPPER (controlled by showControlOverlays)
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(themeBgSecondary)
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                    ) {
+                        val currentNotesMatch = state.notes.firstOrNull { it.pageIndex == state.currentPageIndex }
+                        var scribbleNoteText by remember(state.currentPageIndex) {
+                            mutableStateOf(currentNotesMatch?.note ?: "")
+                        }
+                        var editingNotes by remember(state.currentPageIndex) { mutableStateOf(false) }
+
+                        if (!editingNotes) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { editingNotes = true },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "Delete Annotation",
-                                        tint = Color.Red,
+                                        imageVector = Icons.Filled.Edit,
+                                        contentDescription = "Annotations notes",
+                                        tint = if (scribbleNoteText.isNotEmpty()) Color(0xFF2563EB) else Color.Gray,
                                         modifier = Modifier.size(16.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (scribbleNoteText.isNotEmpty()) "Show page note: '${scribbleNoteText.take(20)}...'" else "Tap to write annotation for Page ${state.currentPageIndex + 1}...",
+                                        fontSize = 13.sp,
+                                        color = if (scribbleNoteText.isNotEmpty()) themeTextColor else (if (state.isNightMode) Color.LightGray else Color.Gray),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (scribbleNoteText.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { viewModel.deleteNoteForCurrentPage() },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = "Delete Annotation",
+                                            tint = Color.Red,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
-                        }
-                    } else {
-                        // Editable text sheet annotation field
-                        OutlinedTextField(
-                            value = scribbleNoteText,
-                            onValueChange = { scribbleNoteText = it },
-                            placeholder = { Text("Write personal page notes...") },
-                            modifier = Modifier.fillMaxWidth().height(80.dp),
-                            textStyle = TextStyle(fontSize = 12.sp, color = themeTextColor),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF2563EB),
-                                unfocusedBorderColor = if (state.isNightMode) Color.DarkGray else Color.LightGray
+                        } else {
+                            // Editable text sheet annotation field
+                            OutlinedTextField(
+                                value = scribbleNoteText,
+                                onValueChange = { scribbleNoteText = it },
+                                placeholder = { Text("Write personal page notes...") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(80.dp),
+                                textStyle = TextStyle(fontSize = 12.sp, color = themeTextColor),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF2563EB),
+                                    unfocusedBorderColor = if (state.isNightMode) Color.DarkGray else Color.LightGray
+                                )
                             )
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                            Button(
-                                onClick = { editingNotes = false },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray),
-                                modifier = Modifier.height(32.dp).padding(horizontal = 4.dp)
-                            ) {
-                                Text("Cancel", fontSize = 11.sp)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    viewModel.saveNoteForCurrentPage(scribbleNoteText)
-                                    editingNotes = false
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text("Save Note", fontSize = 11.sp, color = Color.White)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = { editingNotes = false },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Gray),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .padding(horizontal = 4.dp)
+                                ) {
+                                    Text("Cancel", fontSize = 11.sp)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        viewModel.saveNoteForCurrentPage(scribbleNoteText)
+                                        editingNotes = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    modifier = Modifier
+                                        .height(32.dp)
+                                        .padding(horizontal = 4.dp),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text("Save Note", fontSize = 11.sp, color = Color.White)
+                                }
                             }
                         }
                     }
                 }
 
-                Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                if (showControlOverlays) {
+                    Divider(color = if (state.isNightMode) Color.DarkGray else Color.LightGray)
+                }
 
                 // BOTTOM CONTROLS TRACKBAR / JUMP SLIDER CONTROL
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(themeBgSecondary)
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                AnimatedVisibility(
+                    visible = showControlOverlays,
+                    enter = fadeIn(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(200))
                 ) {
-                    Text(
-                        text = "Page 1",
-                        fontSize = 11.sp,
-                        color = if (state.isNightMode) Color.LightGray else Color.Gray,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Slider(
-                        value = state.currentPageIndex.toFloat(),
-                        onValueChange = { val valueIndex = it.toInt(); viewModel.updateReadingProgress(valueIndex) },
-                        valueRange = 0f..(doc.pageCount - 1).toFloat().coerceAtLeast(1f),
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF2563EB),
-                            activeTrackColor = Color(0xFF2563EB),
-                            inactiveTrackColor = if (state.isNightMode) Color.DarkGray else Color(0xFFE2E8F0)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(themeBgSecondary)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Page 1",
+                            fontSize = 11.sp,
+                            color = if (state.isNightMode) Color.LightGray else Color.Gray,
+                            fontWeight = FontWeight.Bold
                         )
-                    )
 
-                    Text(
-                        text = "Page ${doc.pageCount}",
-                        fontSize = 11.sp,
-                        color = if (state.isNightMode) Color.LightGray else Color.Gray,
-                        fontWeight = FontWeight.Bold
-                    )
+                        Slider(
+                            value = state.currentPageIndex.toFloat(),
+                            onValueChange = { val valueIndex = it.toInt(); viewModel.updateReadingProgress(valueIndex) },
+                            valueRange = 0f..(doc.pageCount - 1).toFloat().coerceAtLeast(1f),
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = if (state.isNightMode) Color.DarkGray else Color(0xFFE2E8F0)
+                            )
+                        )
+
+                        Text(
+                            text = "Page ${doc.pageCount}",
+                            fontSize = 11.sp,
+                            color = if (state.isNightMode) Color.LightGray else Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

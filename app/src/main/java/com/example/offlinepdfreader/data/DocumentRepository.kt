@@ -16,12 +16,16 @@ class DocumentRepository(context: Context) {
     private val recentDocumentsStore = RecentDocumentsStore(context)
     private val bookmarkStore = BookmarkStore(context)
     private val noteStore = NoteStore(context)
+    private val libraryStore = LibraryStore(context)
+    private val bookmarkedDocsStore = BookmarkedDocsStore(context)
     private val searchIndex = PdfSearchIndex()
 
     fun open(resolver: ContentResolver, uri: Uri): LoadedDocument {
         val engine = PdfRendererEngine.from(resolver, uri)
+        // Check if we already have it in recents to preserve the display name if the user renamed it!
+        val existing = recentDocumentsStore.list().firstOrNull { it.uriString == uri.toString() }
         val document = PdfDocumentInfo(
-            displayName = uri.lastPathSegment ?: "PDF",
+            displayName = existing?.displayName ?: uri.lastPathSegment ?: "PDF",
             uriString = uri.toString(),
             pageCount = engine.pageCount,
         )
@@ -37,7 +41,32 @@ class DocumentRepository(context: Context) {
 
     fun updateProgress(documentUri: String, pageIndex: Int) {
         recentDocumentsStore.updateProgress(documentUri, pageIndex)
+        libraryStore.updateProgressInAllLibraries(documentUri, pageIndex)
+        bookmarkedDocsStore.updateProgress(documentUri, pageIndex)
     }
+
+    fun renameDoc(documentUri: String, newName: String) {
+        recentDocumentsStore.rename(documentUri, newName)
+        libraryStore.renameInAllLibraries(documentUri, newName)
+        bookmarkedDocsStore.rename(documentUri, newName)
+    }
+
+    fun addDocumentDirectly(document: PdfDocumentInfo) {
+        recentDocumentsStore.addDirectly(document)
+    }
+
+    // Bookmarked documents APIs
+    fun listBookmarkedDocs() = bookmarkedDocsStore.list()
+    fun isDocBookmarked(uriString: String) = bookmarkedDocsStore.isBookmarked(uriString)
+    fun toggleDocBookmark(document: PdfDocumentInfo) = bookmarkedDocsStore.toggle(document)
+    fun setDocBookmark(document: PdfDocumentInfo, isBookmarked: Boolean) = bookmarkedDocsStore.bookmark(document, isBookmarked)
+
+    // Libraries APIs
+    fun listLibraries() = libraryStore.list()
+    fun createLibrary(name: String) = libraryStore.createLibrary(name)
+    fun deleteLibrary(id: String) = libraryStore.deleteLibrary(id)
+    fun addDocumentToLibrary(libraryId: String, document: PdfDocumentInfo) = libraryStore.addDocumentToLibrary(libraryId, document)
+    fun removeDocumentFromLibrary(libraryId: String, documentUri: String) = libraryStore.removeDocumentFromLibrary(libraryId, documentUri)
 
     fun bookmarksFor(documentUri: String) =
         bookmarkStore.listFor(documentUri)

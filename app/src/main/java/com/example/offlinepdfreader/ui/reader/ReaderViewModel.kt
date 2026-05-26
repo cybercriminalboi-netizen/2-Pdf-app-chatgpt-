@@ -24,6 +24,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     private var engine: PdfRendererEngine? = null
 
+    // Single application-wide high performance rendering coordinator and LRU cache
+    val coordinator = com.example.offlinepdfreader.render.PdfRenderCoordinator()
+
     init {
         loadRecentDocuments()
     }
@@ -32,7 +35,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     fun loadRecentDocuments() {
         val list = repository.recentDocuments()
-        _uiState.value = _uiState.value.copy(recentDocuments = list)
+        val librariesList = repository.listLibraries()
+        val bookmarkedList = repository.listBookmarkedDocs()
+        _uiState.value = _uiState.value.copy(
+            recentDocuments = list,
+            libraries = librariesList,
+            bookmarkedDocuments = bookmarkedList
+        )
     }
 
     fun openDocument(resolver: ContentResolver, uri: Uri) {
@@ -78,7 +87,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
     fun closeDocument() {
         engine?.close()
         engine = null
-        _uiState.value = ReaderUiState(recentDocuments = repository.recentDocuments())
+        val state = _uiState.value
+        _uiState.value = ReaderUiState(
+            recentDocuments = repository.recentDocuments(),
+            libraries = repository.listLibraries(),
+            bookmarkedDocuments = repository.listBookmarkedDocs(),
+            isNightMode = state.isNightMode // preserve theme
+        )
     }
 
     fun updateReadingProgress(pageIndex: Int) {
@@ -87,7 +102,14 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         _uiState.value = _uiState.value.copy(currentPageIndex = clamped)
         viewModelScope.launch(Dispatchers.IO) {
             repository.updateProgress(doc.uriString, clamped)
-            _uiState.value = _uiState.value.copy(recentDocuments = repository.recentDocuments())
+            val list = repository.recentDocuments()
+            val librariesList = repository.listLibraries()
+            val bookmarkedList = repository.listBookmarkedDocs()
+            _uiState.value = _uiState.value.copy(
+                recentDocuments = list,
+                libraries = librariesList,
+                bookmarkedDocuments = bookmarkedList
+            )
         }
     }
 
@@ -98,11 +120,112 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
+    fun setNightMode(act: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            isNightMode = act,
+            isSepiaMode = if (act) false else _uiState.value.isSepiaMode
+        )
+    }
+
     fun toggleSepiaMode() {
         _uiState.value = _uiState.value.copy(
             isSepiaMode = !_uiState.value.isSepiaMode,
             isNightMode = false // mutually exclusive eyecare Comfort modes
         )
+    }
+
+    fun setSepiaMode(act: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            isSepiaMode = act,
+            isNightMode = if (act) false else _uiState.value.isNightMode
+        )
+    }
+
+    // Rename a document across all screens/libraries cleanly
+    fun renameDocument(documentUri: String, newName: String) {
+        repository.renameDoc(documentUri, newName)
+        loadRecentDocuments()
+        val current = _uiState.value.currentDocument
+        if (current?.uriString == documentUri) {
+            _uiState.value = _uiState.value.copy(
+                currentDocument = current.copy(displayName = newName)
+            )
+        }
+    }
+
+    // Doc-level general star/bookmark
+    fun toggleDocumentBookmarkFromList(document: PdfDocumentInfo) {
+        repository.toggleDocBookmark(document)
+        loadRecentDocuments()
+    }
+
+    fun isDocumentBookmarked(uriString: String): Boolean {
+        return repository.isDocBookmarked(uriString)
+    }
+
+    // Save as / app-internal copies builder (without overwriting original!)
+    fun saveDocumentAsCopy(context: android.content.Context, document: PdfDocumentInfo, newBaseName: String) {
+        viewModelScope.launch {
+            try {
+                val srcUri = Uri.parse(document.uriString)
+                val extension = if (document.displayName.contains(".")) document.displayName.substringAfterLast(".") else "pdf"
+                var targetName = "$newBaseName.$extension"
+                var copiesCount = 0
+                
+                var targetFile = java.io.File(context.filesDir, targetName)
+                while (targetFile.exists()) {
+                    copiesCount++
+                    targetName = "$newBaseName ($copiesCount).$extension"
+                    targetFile = java.io.File(context.filesDir, targetName)
+                }
+
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(srcUri)?.use { input ->
+                        targetFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+
+                val newDoc = PdfDocumentInfo(
+                    displayName = targetName,
+                    uriString = Uri.fromFile(targetFile).toString(),
+                    pageCount = document.pageCount,
+                    lastOpenedPage = 0
+                )
+                repository.addDocumentDirectly(newDoc)
+                
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Saved as $targetName in Recents", android.widget.Toast.LENGTH_SHORT).show()
+                    loadRecentDocuments()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Error saving copy: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // Custom Library Creators / Modifiers
+    fun createLibrary(name: String) {
+        repository.createLibrary(name)
+        loadRecentDocuments()
+    }
+
+    fun deleteLibrary(id: String) {
+        repository.deleteLibrary(id)
+        loadRecentDocuments()
+    }
+
+    fun addDocumentToLibrary(libraryId: String, document: PdfDocumentInfo) {
+        repository.addDocumentToLibrary(libraryId, document)
+        loadRecentDocuments()
+    }
+
+    fun removeDocumentFromLibrary(libraryId: String, documentUri: String) {
+        repository.removeDocumentFromLibrary(libraryId, documentUri)
+        loadRecentDocuments()
     }
 
     fun toggleLayoutMode() {
