@@ -32,5 +32,9 @@ data class ReaderUiState(
     val bookmarks: List<PdfBookmark> = emptyList(),
     val notes: List<PdfNote> = emptyList(),
     val searchResults: List<PdfSearchResult> = emptyList(),
-    val searchQuery: String = ""
+    val searchQuery: String = "",
+    
+    // Custom App Icon settings
+    val customIconUri: String? = null,
+    val customIconShape: String = "hexagon"
 )

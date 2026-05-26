@@ -29,6 +29,13 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         loadRecentDocuments()
+        val prefs = getApplication<Application>().getSharedPreferences("offline_pdf_reader_prefs", android.content.Context.MODE_PRIVATE)
+        val savedUri = prefs.getString("custom_icon_uri", null)
+        val savedShape = prefs.getString("custom_icon_shape", "hexagon") ?: "hexagon"
+        _uiState.value = _uiState.value.copy(
+            customIconUri = savedUri,
+            customIconShape = savedShape
+        )
     }
 
     fun getEngine(): PdfRendererEngine? = engine
@@ -92,7 +99,9 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             recentDocuments = repository.recentDocuments(),
             libraries = repository.listLibraries(),
             bookmarkedDocuments = repository.listBookmarkedDocs(),
-            isNightMode = state.isNightMode // preserve theme
+            isNightMode = state.isNightMode, // preserve theme
+            customIconUri = state.customIconUri,
+            customIconShape = state.customIconShape
         )
     }
 
@@ -118,6 +127,18 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
             isNightMode = !_uiState.value.isNightMode,
             isSepiaMode = false // mutually exclusive eyecare Comfort modes
         )
+    }
+
+    fun setCustomIconUri(uri: String?) {
+        val prefs = getApplication<Application>().getSharedPreferences("offline_pdf_reader_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("custom_icon_uri", uri).apply()
+        _uiState.value = _uiState.value.copy(customIconUri = uri)
+    }
+
+    fun setCustomIconShape(shape: String) {
+        val prefs = getApplication<Application>().getSharedPreferences("offline_pdf_reader_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("custom_icon_shape", shape).apply()
+        _uiState.value = _uiState.value.copy(customIconShape = shape)
     }
 
     fun setNightMode(act: Boolean) {

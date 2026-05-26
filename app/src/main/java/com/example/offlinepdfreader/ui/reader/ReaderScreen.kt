@@ -92,6 +92,170 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import com.example.offlinepdfreader.model.PdfDocumentInfo
 
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Brush
+
+// Custom Standout App Icon Shapes in Jetpack Compose
+class HexagonShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val path = Path().apply {
+            val width = size.width
+            val height = size.height
+            val radius = minOf(width, height) / 2f
+            val centerX = width / 2f
+            val centerY = height / 2f
+            moveTo(centerX, centerY - radius)
+            lineTo(centerX + radius * 0.866f, centerY - radius * 0.5f)
+            lineTo(centerX + radius * 0.866f, centerY + radius * 0.5f)
+            lineTo(centerX, centerY + radius)
+            lineTo(centerX - radius * 0.866f, centerY + radius * 0.5f)
+            lineTo(centerX - radius * 0.866f, centerY - radius * 0.5f)
+            close()
+        }
+        return Outline.Generic(path)
+    }
+}
+
+class FlowerShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val path = Path().apply {
+            val width = size.width
+            val height = size.height
+            val centerX = width / 2f
+            val centerY = height / 2f
+            val maxRadius = minOf(width, height) / 2f
+            
+            val numPetals = 8
+            for (i in 0 until 360 step 3) {
+                val angleRad = Math.toRadians(i.toDouble())
+                val r = maxRadius * (0.82f + 0.18f * kotlin.math.cos(numPetals * angleRad).toFloat())
+                val x = centerX + r * kotlin.math.cos(angleRad).toFloat()
+                val y = centerY + r * kotlin.math.sin(angleRad).toFloat()
+                if (i == 0) moveTo(x, y) else lineTo(x, y)
+            }
+            close()
+        }
+        return Outline.Generic(path)
+    }
+}
+
+class SquircleShape : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density
+    ): Outline {
+        val path = Path().apply {
+            val width = size.width
+            val height = size.height
+            val radius = minOf(width, height) / 2f
+            val centerX = width / 2f
+            val centerY = height / 2f
+            
+            moveTo(centerX, centerY - radius)
+            quadraticTo(centerX + radius * 0.88f, centerY - radius * 0.88f, centerX + radius, centerY)
+            quadraticTo(centerX + radius * 0.88f, centerY + radius * 0.88f, centerX, centerY + radius)
+            quadraticTo(centerX - radius * 0.88f, centerY + radius * 0.88f, centerX - radius, centerY)
+            quadraticTo(centerX - radius * 0.88f, centerY - radius * 0.88f, centerX, centerY - radius)
+            close()
+        }
+        return Outline.Generic(path)
+    }
+}
+
+fun getAppIconShape(shapeName: String): Shape {
+    return when (shapeName) {
+        "flower" -> FlowerShape()
+        "squircle" -> SquircleShape()
+        else -> HexagonShape()
+    }
+}
+
+@Composable
+fun AppIconView(
+    modifier: Modifier = Modifier,
+    uriString: String? = null,
+    shapeName: String = "hexagon"
+) {
+    val context = LocalContext.current
+    var bitmapImage by remember(uriString) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(uriString) {
+        if (uriString != null) {
+            try {
+                val uri = Uri.parse(uriString)
+                val isStream = context.contentResolver.openInputStream(uri)
+                val bitmap = BitmapFactory.decodeStream(isStream)
+                bitmapImage = bitmap?.asImageBitmap()
+                isStream?.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                bitmapImage = null
+            }
+        } else {
+            bitmapImage = null
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clip(getAppIconShape(shapeName))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF2563EB), Color(0xFF7C3AED))
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmapImage != null) {
+            Image(
+                bitmap = bitmapImage!!,
+                contentDescription = "User App Icon",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.List,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(1.dp))
+                Text(
+                    text = "PDF",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ReaderScreen(
@@ -149,6 +313,15 @@ fun ReaderScreen(
     var showSaveAsDialog by remember { mutableStateOf<PdfDocumentInfo?>(null) }
     var showAddToLibraryDialog by remember { mutableStateOf<List<PdfDocumentInfo>?>(null) }
     var showCreateLibraryDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
+    val iconPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.setCustomIconUri(it.toString())
+        }
+    }
 
     // Multi-Selection State for Home dashboard tabs
     val selectedUris = remember { mutableStateListOf<String>() }
@@ -424,6 +597,143 @@ fun ReaderScreen(
         )
     }
 
+    // App Settings Customizer Dialog
+    if (showSettingsDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            title = {
+                Text(
+                    text = "🎨 Customize App Icon",
+                    fontWeight = FontWeight.Bold,
+                    color = textColorPrimary,
+                    fontSize = 20.sp
+                )
+            },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Customize the look and shape of the app icon on this device.",
+                        fontSize = 13.sp,
+                        color = textColorSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+
+                    // LIVE ICON PREVIEW WITH SHADOW CARD
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = cardBg),
+                        modifier = Modifier.padding(8.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            AppIconView(
+                                modifier = Modifier.size(90.dp),
+                                uriString = state.customIconUri,
+                                shapeName = state.customIconShape
+                            )
+                        }
+                    }
+
+                    // CHOOSE CUSTOM IMAGE BUTTON
+                    Button(
+                        onClick = { iconPicker.launch("image/*") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Upload Custom Icon", fontWeight = FontWeight.Bold)
+                    }
+
+                    Divider(color = if (state.isNightMode) Color.DarkGray else Color(0xFFF1F5F9))
+
+                    // APP ICON SHAPE SELECTOR
+                    Text(
+                        text = "SELECT ADVANCED NOT-SQUARE SHAPE:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = textColorSecondary,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val shapeOptions = listOf(
+                            "hexagon" to "Hexagon",
+                            "squircle" to "Squircle",
+                            "flower" to "Flower"
+                        )
+                        shapeOptions.forEach { (shapeKey, label) ->
+                            val isSelected = state.customIconShape == shapeKey
+                            val buttonBg = if (isSelected) {
+                                if (state.isNightMode) Color(0xFF1E3A8A) else Color(0xFF2563EB)
+                            } else {
+                                if (state.isNightMode) Color(0xFF2D2D2D) else Color(0xFFF1F5F9)
+                            }
+                            val buttonTxt = if (isSelected) Color.White else textColorPrimary
+
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(buttonBg)
+                                    .clickable { viewModel.setCustomIconShape(shapeKey) }
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = buttonTxt
+                                )
+                            }
+                        }
+                    }
+
+                    // RESTORE TO DEFAULT APP ICON
+                    if (state.customIconUri != null) {
+                        Button(
+                            onClick = { viewModel.setCustomIconUri(null) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.Red),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Reset to Default App Icon", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSettingsDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = if (state.isNightMode) Color(0xFF2563EB) else Color(0xFF0F172A)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Done")
+                }
+            },
+            containerColor = cardBg,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -437,7 +747,7 @@ fun ReaderScreen(
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Sleek App Header with Gradient Accent and Dark mode toggler
+                // Sleek App Header with Custom Shape Dynamic App Icon and Settings trigger
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -445,20 +755,44 @@ fun ReaderScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "📚 PDF Viewer",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = textColorPrimary
-                    )
-
-                    // Toggle Button in Home screen too to switch between light/dark themes
-                    IconButton(onClick = { viewModel.toggleNightMode() }) {
-                        Icon(
-                            imageVector = if (state.isNightMode) Icons.Filled.Refresh else Icons.Filled.Settings,
-                            contentDescription = "Theme Toggle",
-                            tint = if (state.isNightMode) Color(0xFFFBBF24) else Color(0xFF475569)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppIconView(
+                            modifier = Modifier.size(44.dp),
+                            uriString = state.customIconUri,
+                            shapeName = state.customIconShape
                         )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "PDF Viewer",
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColorPrimary
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Theme Switcher Button
+                        IconButton(onClick = { viewModel.toggleNightMode() }) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = "Theme Toggle",
+                                tint = if (state.isNightMode) Color(0xFFFBBF24) else Color(0xFF475569)
+                            )
+                        }
+
+                        // App Icon & Settings Button
+                        IconButton(onClick = { showSettingsDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.Settings,
+                                contentDescription = "App Settings",
+                                tint = if (state.isNightMode) Color.White else Color(0xFF475569)
+                            )
+                        }
                     }
                 }
 
