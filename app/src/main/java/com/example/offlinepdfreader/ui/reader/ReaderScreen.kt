@@ -1,5 +1,6 @@
 package com.example.offlinepdfreader.ui.reader
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +45,12 @@ fun ReaderScreen(
     ) {
         Button(onClick = { picker.launch(arrayOf("application/pdf")) }) {
             Text(text = "Open PDF")
+        }
+
+        Button(onClick = {
+            context.startActivity(Intent(context, ReaderActivity::class.java))
+        }) {
+            Text(text = "Try MVP Contract Mode")
         }
 
         when {
