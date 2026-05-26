@@ -14,11 +14,10 @@ class PdfSearchIndex {
         val pages = inMemoryPages[documentUri].orEmpty()
         return pages.mapIndexedNotNull { index, text ->
             if (text.lowercase().contains(normalized)) {
-                val snippet = text.take(160)
                 PdfSearchResult(
                     pageIndex = index,
                     pageLabel = "Page ${index + 1}",
-                    snippet = snippet,
+                    snippet = text.take(160),
                 )
             } else {
                 null

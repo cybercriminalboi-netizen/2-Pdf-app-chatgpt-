@@ -2,6 +2,7 @@ package com.example.offlinepdfreader
 
 import android.content.ContentResolver
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -9,7 +10,7 @@ import java.io.IOException
 
 class PdfRendererEngine private constructor(
     private val fileDescriptor: ParcelFileDescriptor,
-    private val renderer: PdfRenderer
+    private val renderer: PdfRenderer,
 ) : AutoCloseable {
 
     val pageCount: Int
@@ -21,7 +22,7 @@ class PdfRendererEngine private constructor(
             val ratio = width.toFloat() / page.width.toFloat()
             val height = (page.height * ratio).toInt().coerceAtLeast(1)
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.eraseColor(android.graphics.Color.WHITE)
+            bitmap.eraseColor(Color.WHITE)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
             bitmap
         } finally {
