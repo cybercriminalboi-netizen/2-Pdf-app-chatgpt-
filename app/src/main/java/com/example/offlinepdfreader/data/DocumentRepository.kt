@@ -10,6 +10,8 @@ import com.example.offlinepdfreader.model.PdfNote
 import com.example.offlinepdfreader.storage.BookmarkStore
 import com.example.offlinepdfreader.storage.RecentDocumentsStore
 import com.example.offlinepdfreader.storage.NoteStore
+import com.example.offlinepdfreader.storage.LibraryStore
+import com.example.offlinepdfreader.storage.BookmarkedDocsStore
 import com.example.offlinepdfreader.search.PdfSearchIndex
 
 class DocumentRepository(context: Context) {

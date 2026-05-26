@@ -47,7 +47,6 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Refresh
@@ -1145,7 +1144,7 @@ fun ReaderScreen(
                                 else -> themeTextColor
                             }
                             Icon(
-                                imageVector = Icons.Filled.Visibility,
+                                imageVector = Icons.Filled.Refresh,
                                 contentDescription = "Cycling eye confort filter",
                                 tint = iconColor
                             )
