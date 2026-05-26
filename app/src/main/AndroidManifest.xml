@@ -4,15 +4,13 @@
         android:label="OfflinePdfReader"
         android:allowBackup="true"
         android:supportsRtl="true"
+        android:icon="@drawable/ic_launcher_hexagon"
+        android:roundIcon="@drawable/ic_launcher_hexagon"
         android:theme="@style/Theme.OfflinePdfReader">
 
         <activity
             android:name=".MainActivity"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <!-- Handle share intent from other apps -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -29,6 +27,48 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+
+        <activity-alias
+            android:name=".MainActivityAliasHexagon"
+            android:enabled="true"
+            android:icon="@drawable/ic_launcher_hexagon"
+            android:roundIcon="@drawable/ic_launcher_hexagon"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="OfflinePdfReader">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityAliasSquircle"
+            android:enabled="false"
+            android:icon="@drawable/ic_launcher_squircle"
+            android:roundIcon="@drawable/ic_launcher_squircle"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="OfflinePdfReader">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".MainActivityAliasFlower"
+            android:enabled="false"
+            android:icon="@drawable/ic_launcher_flower"
+            android:roundIcon="@drawable/ic_launcher_flower"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="OfflinePdfReader">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
     </application>
 </manifest>

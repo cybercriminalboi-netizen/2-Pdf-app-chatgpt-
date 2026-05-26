@@ -139,6 +139,37 @@ class ReaderViewModel(application: Application) : AndroidViewModel(application) 
         val prefs = getApplication<Application>().getSharedPreferences("offline_pdf_reader_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putString("custom_icon_shape", shape).apply()
         _uiState.value = _uiState.value.copy(customIconShape = shape)
+        updateAppDrawerIcon(shape)
+    }
+
+    private fun updateAppDrawerIcon(shape: String) {
+        val context = getApplication<Application>()
+        val packageManager = context.packageManager
+        val packageName = context.packageName
+
+        val aliases = listOf(
+            "hexagon" to "$packageName.MainActivityAliasHexagon",
+            "squircle" to "$packageName.MainActivityAliasSquircle",
+            "flower" to "$packageName.MainActivityAliasFlower"
+        )
+
+        aliases.forEach { (key, className) ->
+            val compName = android.content.ComponentName(packageName, className)
+            val state = if (key == shape) {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            try {
+                packageManager.setComponentEnabledSetting(
+                    compName,
+                    state,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun setNightMode(act: Boolean) {
